@@ -1,0 +1,121 @@
+Retriever in a RAG Pipeline – Notes
+-----------------------------------
+1. What is a Retriever?
+
+A retriever is the interface between your queries and the vector store.
+
+It is a high-level abstraction over vector stores that makes document retrieval easy and flexible.
+
+Conceptually:
+
+Vector Store = Low-level storage of vectors (embeddings).
+
+Retriever = “Librarian” that knows how to fetch the most relevant documents.
+
+2. Why we need a Retriever
+
+Even though the vector store can perform similarity searches, a retriever provides:
+
+Standardized Interface
+
+LangChain chains (like RetrievalQA) expect a retriever, not a raw vector store.
+
+Makes the system plug-and-play, independent of the vector store backend.
+
+Multiple Search Strategies
+
+similarity: Standard cosine similarity, fetches most relevant docs.
+
+mmr (Maximum Marginal Relevance): Fetches diverse documents, avoids redundancy.
+
+similarity_score_threshold: Filters out low-relevance results.
+
+Additional Flexibility
+
+Can filter by metadata (e.g., source, author, date).
+
+Combines multiple vector stores if needed.
+
+Allows custom logic, limits (k results), or preprocessing queries.
+
+Integration with LLM Chains
+
+Chains call retrievers instead of directly accessing vector stores.
+
+Simplifies code: chains do not need to know how documents are stored or embedded.
+
+3. Analogy
+Component	Analogy
+Vector Store	Bookshelf (stores all documents)
+Retriever	Librarian (finds the most relevant books based on your query)
+LLM Chain	Reader (asks the librarian to fetch books to answer questions)
+
+Without a retriever, the LLM would have to manually search the vector store — inefficient and error-prone.
+
+4. How it fits in the RAG pipeline
+[Raw Text Files] 
+   ↓
+DataLoader → creates Document chunks
+   ↓
+VectorStoreManager → embeds & stores chunks in Chroma
+   ↓
+RetrieverManager → creates retriever (high-level search interface)
+   ↓
+LLM / QA Chain → queries retriever for relevant documents
+   ↓
+LLM processes docs and returns answers
+
+
+VectorStoreManager → handles embeddings & storage
+
+RetrieverManager → handles retrieval logic & search strategies
+
+LLM / Chain → uses retriever without caring about storage details
+
+5. Summary
+
+Vector Store = storage & search at low level.
+
+Retriever = high-level interface for querying vectors.
+
+Retriever is needed to:
+
+Provide consistent API for chains
+
+Apply advanced search strategies
+
+Filter or rank results
+
+Integrate seamlessly with the rest of the pipeline
+
+
+------------------------------------------------------------------------------
+
+
+1️⃣ What is self.chain?
+
+self.chain is the RetrievalQA chain you created earlier with:
+
+self.chain = RetrievalQA.from_chain_type(
+    llm=self.llm,
+    chain_type=chain_type,
+    retriever=self.retriever,
+    return_source_documents=return_source_documents,
+    chain_type_kwargs={"prompt": self.prompt}
+)
+
+
+So self.chain knows:
+
+Which LLM to use (self.llm)
+
+Which retriever to get documents (self.retriever)
+
+Which prompt template to use (self.prompt)
+
+
+2️⃣ What is .invoke()?
+
+.invoke() is a LangChain method that runs the chain end-to-end.
+
+You pass a dictionary of input variables.

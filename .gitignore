@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+venv/
+
+
+.cursor/rules/kluster-code-verify.mdc
+.kluster
+
+
+# System files
+.DS_Store
+
+# Vectorstore data
+vectorstore/

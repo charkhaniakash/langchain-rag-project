@@ -5,3 +5,4 @@ sentence-transformers==2.2.2
 groq==0.4.1
 python-dotenv==1.0.0
 tiktoken==0.5.2
+langchain_groq==0.0.1
