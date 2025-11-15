@@ -6,3 +6,38 @@ groq==0.4.1
 python-dotenv==1.0.0
 tiktoken==0.5.2
 langchain_groq==0.0.1
+
+
+# Core Dependencies
+# fastapi==0.104.1
+fastapi>=0.108.0
+
+uvicorn==0.24.0
+python-multipart==0.0.6
+
+# Speech Recognition (STT)
+openai-whisper==20231117
+torch==2.1.0
+torchaudio==2.1.0
+
+# Text-to-Speech (TTS)
+pyttsx3==2.90
+# Alternative: coqui-tts==0.22.0
+
+# LLM Integration
+ollama==0.1.6
+langchain==0.1.0
+langchain-community==0.0.10
+
+# MCP Integration
+mcp==1.21.1
+httpx==0.25.2
+
+# Utilities
+python-dotenv==1.0.0
+pydantic==2.5.0
+aiofiles==23.2.1
+
+# APIs
+wikipedia-api==0.6.0
+requests==2.31.0

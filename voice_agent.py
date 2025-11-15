@@ -43,12 +43,19 @@ import logging
 import os
 import sys
 from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 
 # Import our modules
+from src.embeddings_manager import EmbeddingsManager
+from src.rag_chain import RAGChain
+from src.retriever_manager import RetrieverManager
+from src.vectorstore_manager import VectorStoreManager
 from stt import SpeechToText
 from tts import TextToSpeech
 from mcp_tools import MCPTools
 from orchestrator import Orchestrator
+from src.llm_manager import LLMManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,7 +109,7 @@ class VoiceAgent:
         logger.info("Initializing orchestrator...")
         self.orchestrator = Orchestrator(
             model_name=model_name,
-            rag_chain=rag_chain,
+            rag_chain=load_rag_chain(),
             mcp_tools=self.mcp_tools
         )
         
@@ -248,20 +255,22 @@ def load_rag_chain():
         Initialized RAG chain instance
     """
     try:
-        # Add the src directory to path if needed
-        src_path = Path(__file__).parent / "src"
-        if src_path.exists():
-            sys.path.insert(0, str(src_path))
+        logger.info("Initializing RAG components...")
         
-        # Import your RAG chain
-        # Adjust this import based on your actual implementation
-        # from rag_chain import RAGChain
-        # rag = RAGChain()
-        # return rag
+        # Initialize all components
+        llm = LLMManager().get_llm()
+        embeddings = EmbeddingsManager().get_embeddings()
+        vectorstore = VectorStoreManager(embeddings).get_vectorstore()
         
-        logger.warning("RAG chain not loaded - using placeholder")
-        return None  # Placeholder - replace with actual RAG chain
+        retriever_manager = RetrieverManager(vectorstore)
+        retriever = retriever_manager.create_retriever(search_type="similarity")
         
+        # Create RAG chain object
+        rag_chain = RAGChain(llm=llm, retriever=retriever)
+        rag_chain.create_chain(chain_type="stuff", return_source_documents=True)
+        
+        logger.info("✓ RAG chain loaded successfully")
+        return rag_chain 
     except Exception as e:
         logger.error(f"Failed to load RAG chain: {e}")
         return None
@@ -294,8 +303,10 @@ Examples:
     parser.add_argument(
         '--input', '-i',
         type=str,
-        help='Input audio file path (wav, mp3, etc.)'
+        help='/Users/akash/Downloads/what_happen.wav'
     )
+    
+    # python voice_agent.py --input /Users/akash/Downloads/what_happen.wav --output response.wav
     
     parser.add_argument(
         '--output', '-o',
@@ -341,14 +352,14 @@ Examples:
     try:
         # Load RAG chain
         logger.info("Loading RAG chain...")
-        rag_chain = load_rag_chain()
+        # rag_chain = rag_chain,
         
         # Initialize Voice Agent
         agent = VoiceAgent(
             model_name=args.model,
             whisper_model=args.whisper,
             tts_rate=args.tts_rate,
-            rag_chain=rag_chain
+            rag_chain=None
         )
         
         # Run in appropriate mode

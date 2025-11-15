@@ -119,3 +119,85 @@ Which prompt template to use (self.prompt)
 .invoke() is a LangChain method that runs the chain end-to-end.
 
 You pass a dictionary of input variables.
+
+
+-----------------------
+
+
+Step 1 → result = self.transcribe(audio_path)
+
+This calls your main transcription function (transcribe()), which returns something like this:
+
+{
+    "text": "Hello world, this is a test.",
+    "language": "en",
+    "segments": [
+        {"start": 0.0, "end": 1.2, "text": "Hello world"},
+        {"start": 1.2, "end": 2.8, "text": "this is a test"}
+    ]
+}
+
+
+Step 2 → Extract segments with timestamps
+
+The list comprehension then builds a simplified version of those segments:
+
+[
+    {"start": 0.0, "end": 1.2, "text": "Hello world"},
+    {"start": 1.2, "end": 2.8, "text": "this is a test"}
+]
+
+
+
+
+--------------------
+
+
+🧩 What Ollama Is
+
+Ollama is a lightweight framework and CLI tool that makes it super easy to:
+
+Download, run, and manage large language models locally
+
+Interact with them via the terminal, API, or other apps
+
+Avoid cloud dependencies — it runs everything on your CPU or GPU
+
+
+
+---------------------
+
+
+🧠 Difference Between append and extend
+
+| Method             | What it adds       | Example               | Result           |
+| ------------------ | ------------------ | --------------------- | ---------------- |
+| `append(x)`        | Adds a single item | `[1,2].append([3,4])` | `[1, 2, [3, 4]]` |
+| `extend(iterable)` | Adds each element  | `[1,2].extend([3,4])` | `[1, 2, 3, 4]`   |
+
+
+
+---------------------
+
+
+
+ollama.chat() is a function from the Ollama Python library that lets you talk to a local LLM (like Llama3, Mistral, etc.).
+
+You give it:
+
+which model to use
+
+the chat messages (user/system/assistant)
+
+And it returns the model’s reply.
+
+Example:
+response = ollama.chat(
+    model="llama3",
+    messages=[{"role": "user", "content": "Hello"}]
+)
+
+
+So in one line:
+
+👉 ollama.chat() = “Send chat messages to the local model and get a response back.”

@@ -143,7 +143,7 @@ if __name__ == "__main__":
     stt = SpeechToText(model_size="base")
     
     # Test with an audio file
-    test_audio = "input.wav"
+    test_audio = "/Users/akash/Downloads/about_time.wav"
     
     if os.path.exists(test_audio):
         # Simple transcription
