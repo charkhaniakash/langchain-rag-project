@@ -116,40 +116,54 @@ class VoiceAgent:
         
         logger.info("Voice Agent initialized successfully!")
     
-    def process_voice_input(self, audio_file: str, output_file: str = "response.wav"):
+    def process_voice_input(self, audio_file: str = None, text_input: str = None, output_file: str = "response.wav"):
         """
-        Process a single voice input and generate voice response.
+        Process voice or text input and generate voice response.
         
         This is the complete pipeline:
-        1. Convert audio to text (STT)
+        1. Convert audio to text (STT) OR use provided text
         2. Process query through orchestrator (LLM + RAG + MCP)
         3. Convert response to speech (TTS)
         
         Args:
-            audio_file: Path to input audio file (wav, mp3, etc.)
+            audio_file: Path to input audio file (wav, mp3, etc.) - optional if text_input provided
+            text_input: Direct text input - optional if audio_file provided
             output_file: Path to save response audio
         
         Returns:
             Dictionary with:
-            - transcribed_text: What the user said
+            - success: Boolean indicating success
+            - transcribed_text: What the user said (from STT or text_input)
             - response_text: Agent's text response
             - audio_file: Path to response audio
         """
-        logger.info(f"Processing voice input: {audio_file}")
+        # Validate input
+        if not audio_file and not text_input:
+            logger.error("Neither audio_file nor text_input provided")
+            return {"error": "Either audio_file or text_input must be provided"}
         
-        # Step 1: Speech-to-Text
-        logger.info("Step 1: Transcribing audio...")
-        try:
-            stt_result = self.stt.transcribe(audio_file)
-            user_text = stt_result['text']
-            logger.info(f"Transcribed: {user_text}")
-        except Exception as e:
-            logger.error(f"STT failed: {e}")
-            return {"error": f"Speech recognition failed: {str(e)}"}
+        if audio_file and text_input:
+            logger.warning("Both audio_file and text_input provided, using audio_file")
         
-        if not user_text.strip():
-            logger.warning("Empty transcription")
-            return {"error": "No speech detected in audio"}
+        # Step 1: Speech-to-Text (or use provided text)
+        if audio_file:
+            logger.info(f"Processing voice input: {audio_file}")
+            logger.info("Step 1: Transcribing audio...")
+            try:
+                stt_result = self.stt.transcribe(audio_file)
+                user_text = stt_result['text']
+                logger.info(f"Transcribed: {user_text}")
+            except Exception as e:
+                logger.error(f"STT failed: {e}")
+                return {"error": f"Speech recognition failed: {str(e)}"}
+            
+            if not user_text.strip():
+                logger.warning("Empty transcription")
+                return {"error": "No speech detected in audio"}
+        else:
+            logger.info(f"Processing text input: {text_input}")
+            user_text = text_input
+            logger.info("Step 1: Using provided text (skipping STT)")
         
         # Step 2: Process through orchestrator
         logger.info("Step 2: Processing through orchestrator...")
@@ -179,7 +193,6 @@ class VoiceAgent:
             "response_text": response_text,
             "audio_file": output_file
         }
-    
     def interactive_mode(self, realtime: bool = True):
         """
         Run in interactive mode: continuous conversation.
