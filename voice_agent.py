@@ -443,7 +443,7 @@ Examples:
         
         # Run in appropriate mode
         if args.interactive:
-            agent.interactive_mode(realtime=args.realtime)
+            agent.interactive_mode()
         else:
             # Single file mode
             logger.info(f"Processing audio file: {args.input}")

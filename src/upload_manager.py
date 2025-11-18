@@ -16,6 +16,7 @@ class UploadManager:
     def __init__(self):
         self.upload_dir = Config.UPLOAD_DIR
         self.on_upload_callbacks = []  # List of callback functions
+        self.metadata = {}
         os.makedirs(self.upload_dir, exist_ok=True)
         
     def add_upload_callback(self, callback):
@@ -47,8 +48,15 @@ class UploadManager:
                 return False
             
             # Get filename
+            file_id = str(uuid.uuid4()) 
             filename = os.path.basename(file_path)
             destination = os.path.join(self.upload_dir, filename)
+
+            # save metadata
+            self.metadata[file_id] = {
+                "filename": filename,
+                "path": destination
+            }
             
             # Copy file to upload directory
             shutil.copy2(file_path, destination)
@@ -89,60 +97,41 @@ class UploadManager:
         print(f"\n✅ Successfully uploaded {success_count}/{len(file_paths)} files")
         return success_count
     
-    def list_uploaded_files(self) -> List[str]:
-        """
-        List all uploaded files.
-        
-        Returns:
-            List of uploaded filenames
-        """
-        if not os.path.exists(self.upload_dir):
-            return []
-        
-        # Get all files (excluding directories and hidden files)
-        files = [f for f in os.listdir(self.upload_dir) 
-                if os.path.isfile(os.path.join(self.upload_dir, f)) and not f.startswith('.')]
-        return files
+    def list_uploaded_files(self):
+        return [{"id": doc_id, "filename": info["filename"]} for doc_id, info in self.metadata.items()]
+
     
-    def delete_file(self, filename: str) -> bool:
-        """
-        Delete an uploaded file.
-        
-        Args:
-            filename: Name of file to delete
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            file_path = os.path.join(self.upload_dir, filename)
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print(f"✅ Deleted: {filename}")
-                return True
-            else:
-                print(f"❌ File not found: {filename}")
-                return False
-        except Exception as e:
-            print(f"❌ Delete failed: {e}")
+    def delete_file(self, file_id: str) -> bool:
+        if file_id in self.metadata:
+            path = self.metadata[file_id]["path"]
+            if os.path.exists(path):
+                os.remove(path)
+            del self.metadata[file_id]
+            self.save_metadata()
+            print(f"✅ Deleted file with ID: {file_id}")
+            return True
+        else:
+            print(f"❌ File ID not found: {file_id}")
             return False
+
     
     def clear_all_uploads(self) -> bool:
         """
-        Delete all uploaded files.
+        Delete all uploaded files using their IDs.
         
         Returns:
             True if successful, False otherwise
         """
         try:
-            files = self.list_uploaded_files()
-            for filename in files:
-                self.delete_file(filename)
-            print(f"✅ Cleared {len(files)} files")
+            all_ids = list(self.metadata.keys())
+            for file_id in all_ids:
+                self.delete_file(file_id)
+            print(f"✅ Cleared {len(all_ids)} files")
             return True
         except Exception as e:
             print(f"❌ Clear failed: {e}")
             return False
+
     
     def get_upload_dir(self) -> str:
         """

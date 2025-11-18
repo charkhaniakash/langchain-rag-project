@@ -33,6 +33,12 @@ langchain-community==0.0.10
 mcp==1.21.1
 httpx==0.25.2
 
+# Real-time Voice Capture
+sounddevice==0.4.6
+soundfile==0.12.1
+numpy==1.24.3
+
+
 # Utilities
 python-dotenv==1.0.0
 pydantic==2.5.0

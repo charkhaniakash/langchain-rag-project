@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 import tempfile
 import os
+import base64
 from voice_agent import VoiceAgent
 
 class VoiceService:
@@ -47,9 +48,9 @@ class VoiceService:
             os.unlink(output_path)
             
             return {
-                "transcribed_text": result.get("transcribed_text", ""),
-                "response_text": result.get("response_text", ""),
-                "audio_data": audio_response
+                "transcribed_text": "...",
+                "response_text": "...",
+                "audio_data": base64.b64encode(audio_response).decode("utf-8")   # ✅ FIX
             }
             
         except Exception as e:

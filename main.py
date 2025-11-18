@@ -24,15 +24,6 @@ retriever = retriever_manager.create_retriever(search_type="similarity")
 rag_chain = RAGChain(llm=llm, retriever=retriever)
 rag_chain.create_chain()
 
-# Test both queries
-print("\n=== Test 1: Original query ===")
-result1 = rag_chain.query("What was the narrator's greatest fear as he moved towards the school?")
-print(result1['result'])
-
-print("\n=== Test 2: LLM modified query ===")
-result2 = rag_chain.query("Narrator's fear in the story approaching the school")
-print(result2['result'])
-
 # Global variables for initialized components
 rag_chain = None
 vectorstore_manager = None
