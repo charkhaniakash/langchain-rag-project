@@ -45,13 +45,14 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-
+# Import our modules
 # Import our modules
 from src.embeddings_manager import EmbeddingsManager
 from src.rag_chain import RAGChain
 from src.retriever_manager import RetrieverManager
 from src.vectorstore_manager import VectorStoreManager
 from stt import SpeechToText
+# from stt import SpeechToText
 from tts import TextToSpeech
 from mcp_tools import MCPTools
 from orchestrator import Orchestrator
@@ -179,69 +180,134 @@ class VoiceAgent:
             "audio_file": output_file
         }
     
-    def interactive_mode(self):
+    def interactive_mode(self, realtime: bool = True):
         """
         Run in interactive mode: continuous conversation.
         
-        In this mode:
-        1. User provides audio file path
-        2. System processes and responds
-        3. Loop continues until user types 'quit'
+        Args:
+            realtime: If True, use microphone for real-time input
+                     If False, use file upload mode
         
-        Useful for testing and development.
+        In real-time mode:
+        1. Press Enter to record from microphone
+        2. Speak your question
+        3. System auto-detects when you stop speaking
+        4. Processes and responds with voice
+        5. Loop continues until you type 'quit'
         """
         print("\n" + "="*60)
         print("Voice Agent - Interactive Mode")
         print("="*60)
-        print("\nCommands:")
-        print("  - Enter path to audio file to process")
-        print("  - Type 'reset' to clear conversation history")
-        print("  - Type 'quit' to exit")
+        
+        if realtime:
+            print("\n🎤 REAL-TIME MODE (Using Microphone)")
+            print("\nCommands:")
+            print("  - Press ENTER to record from microphone")
+            print("  - Type 'file' to switch to file upload mode")
+            print("  - Type 'reset' to clear conversation history")
+            print("  - Type 'quit' to exit")
+            
+            # Try to import voice recorder
+            try:
+                from voice_capture import VoiceRecorder
+                recorder = VoiceRecorder()
+                print("\n✅ Microphone ready!")
+            except ImportError:
+                print("\n⚠️  Voice capture module not available")
+                print("   Install: pip install sounddevice soundfile")
+                print("   Falling back to file mode...")
+                realtime = False
+        else:
+            print("\n📁 FILE MODE (Upload Audio Files)")
+            print("\nCommands:")
+            print("  - Enter path to audio file to process")
+            print("  - Type 'mic' to switch to microphone mode")
+            print("  - Type 'reset' to clear conversation history")
+            print("  - Type 'quit' to exit")
+        
         print("="*60 + "\n")
         
         while True:
             try:
-                user_input = input("\nEnter audio file path (or command): ").strip()
+                if realtime:
+                    user_input = input("\n🎤 Press ENTER to speak (or type command): ").strip()
+                else:
+                    user_input = input("\n📁 Enter audio file path (or command): ").strip()
                 
+                # Handle commands
                 if user_input.lower() == 'quit':
                     print("Goodbye!")
                     break
                 
                 if user_input.lower() == 'reset':
                     self.orchestrator.reset_conversation()
-                    print("Conversation history cleared.")
+                    print("✅ Conversation history cleared.")
                     continue
                 
-                if not user_input:
+                if user_input.lower() == 'file':
+                    realtime = False
+                    print("\n📁 Switched to file upload mode")
                     continue
                 
-                # Check if file exists
-                if not os.path.exists(user_input):
-                    print(f"Error: File not found: {user_input}")
+                if user_input.lower() == 'mic':
+                    try:
+                        from voice_capture import VoiceRecorder
+                        recorder = VoiceRecorder()
+                        realtime = True
+                        print("\n🎤 Switched to microphone mode")
+                    except ImportError:
+                        print("\n⚠️  Voice capture not available. Install: pip install sounddevice soundfile")
                     continue
+                
+                # Record or load audio
+                if realtime and not user_input:
+                    # Real-time recording
+                    print("\n🎤 Recording... (speak now, will auto-stop)")
+                    audio_file = recorder.record_auto_stop(output_file="temp_recording.wav")
+                    
+                    if not audio_file:
+                        print("❌ Recording failed")
+                        continue
+                else:
+                    # File mode
+                    if not user_input:
+                        continue
+                    
+                    audio_file = user_input
+                    
+                    # Check if file exists
+                    if not os.path.exists(audio_file):
+                        print(f"❌ File not found: {audio_file}")
+                        continue
                 
                 # Process the audio
-                print("\nProcessing...")
-                result = self.process_voice_input(user_input)
+                print("\n⚙️  Processing...")
+                result = self.process_voice_input(audio_file)
                 
                 if "error" in result:
-                    print(f"\nError: {result['error']}")
+                    print(f"\n❌ Error: {result['error']}")
                 else:
-                    print(f"\nYou said: {result['transcribed_text']}")
-                    print(f"\nAgent response: {result['response_text']}")
-                    print(f"\nAudio saved: {result['audio_file']}")
+                    print(f"\n💬 You said: {result['transcribed_text']}")
+                    print(f"\n🤖 Agent: {result['response_text']}")
                     
-                    # Ask if user wants to play the audio
-                    play = input("\nPlay response audio? (y/n): ").strip().lower()
-                    if play == 'y':
+                    # Auto-play response in real-time mode
+                    if realtime:
+                        print(f"\n🔊 Playing response...")
                         self.tts.speak(result['response_text'])
+                    else:
+                        print(f"\n💾 Audio saved: {result['audio_file']}")
+                        play = input("\n🔊 Play response audio? (y/n): ").strip().lower()
+                        if play == 'y':
+                            self.tts.speak(result['response_text'])
                 
             except KeyboardInterrupt:
                 print("\n\nGoodbye!")
                 break
             except Exception as e:
                 logger.error(f"Error in interactive mode: {e}")
-                print(f"Error: {str(e)}")
+                print(f"❌ Error: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
 
 def load_rag_chain():
@@ -255,6 +321,17 @@ def load_rag_chain():
         Initialized RAG chain instance
     """
     try:
+        # Add the src directory to path if needed
+        src_path = Path(__file__).parent / "src"
+        if src_path.exists():
+            sys.path.insert(0, str(src_path))
+        
+        # Import your RAG chain
+        # Adjust this import based on your actual implementation
+        # from rag_chain import RAGChain
+        # rag = RAGChain()
+        # return rag
+        
         logger.info("Initializing RAG components...")
         
         # Initialize all components
@@ -271,6 +348,7 @@ def load_rag_chain():
         
         logger.info("✓ RAG chain loaded successfully")
         return rag_chain 
+        
     except Exception as e:
         logger.error(f"Failed to load RAG chain: {e}")
         return None
@@ -303,10 +381,8 @@ Examples:
     parser.add_argument(
         '--input', '-i',
         type=str,
-        help='/Users/akash/Downloads/what_happen.wav'
+        help='Input audio file path (wav, mp3, etc.)'
     )
-    
-    # python voice_agent.py --input /Users/akash/Downloads/what_happen.wav --output response.wav
     
     parser.add_argument(
         '--output', '-o',
@@ -319,6 +395,12 @@ Examples:
         '--interactive',
         action='store_true',
         help='Run in interactive mode'
+    )
+    
+    parser.add_argument(
+        '--realtime',
+        action='store_true',
+        help='Use microphone for real-time input (requires sounddevice)'
     )
     
     parser.add_argument(
@@ -350,21 +432,18 @@ Examples:
         parser.error("Either --input or --interactive is required")
     
     try:
-        # Load RAG chain
-        logger.info("Loading RAG chain...")
-        # rag_chain = rag_chain,
-        
         # Initialize Voice Agent
+        # Note: RAG chain is loaded inside VoiceAgent.__init__()
         agent = VoiceAgent(
             model_name=args.model,
             whisper_model=args.whisper,
             tts_rate=args.tts_rate,
-            rag_chain=None
+            rag_chain=None  # Will be loaded by load_rag_chain() inside __init__
         )
         
         # Run in appropriate mode
         if args.interactive:
-            agent.interactive_mode()
+            agent.interactive_mode(realtime=args.realtime)
         else:
             # Single file mode
             logger.info(f"Processing audio file: {args.input}")

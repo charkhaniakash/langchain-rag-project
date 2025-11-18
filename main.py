@@ -216,30 +216,30 @@ def main():
     # Initialize upload manager
     upload_manager = UploadManager()
     
+    # Register the rebuild_vectorstore function as a callback for uploads
+    upload_manager.add_upload_callback(rebuild_vectorstore)
+    
     print(f"\n📁 Upload directory: {Config.UPLOAD_DIR}")
     print(f"📁 Vector store: {Config.VECTOR_STORE_PATH}")
+    print("\nℹ️  The system will automatically rebuild the vector store after file uploads.")
     
     while True:
         print("\n" + "="*60)
         print("Main Menu")
         print("="*60)
         print("1. Upload documents")
-        print("2. Rebuild vector store (after uploading)")
-        print("3. Ask questions (Interactive Q&A)")
-        print("4. Exit")
+        print("2. Ask questions (Interactive Q&A)")
+        print("3. Exit")
         
-        choice = input("\nSelect option (1-4): ").strip()
+        choice = input("\nSelect option (1-3): ").strip()
         
         if choice == '1':
             upload_documents_interactive()
             
         elif choice == '2':
-            rebuild_vectorstore()
-            
-        elif choice == '3':
             interactive_mode()
             
-        elif choice == '4':
+        elif choice == '3':
             print("\n👋 Goodbye!")
             break
             

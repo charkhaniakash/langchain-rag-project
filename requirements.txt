@@ -41,3 +41,10 @@ aiofiles==23.2.1
 # APIs
 wikipedia-api==0.6.0
 requests==2.31.0
+
+
+
+# backend/requirements.txt
+fastapi>=0.68.0
+uvicorn>=0.15.0
+pydantic>=1.8.0

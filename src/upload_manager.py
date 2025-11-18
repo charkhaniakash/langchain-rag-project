@@ -15,14 +15,28 @@ class UploadManager:
     
     def __init__(self):
         self.upload_dir = Config.UPLOAD_DIR
+        self.on_upload_callbacks = []  # List of callback functions
         os.makedirs(self.upload_dir, exist_ok=True)
+        
+    def add_upload_callback(self, callback):
+        """Add a callback function to be called after successful upload"""
+        self.on_upload_callbacks.append(callback)
     
-    def upload_file(self, file_path: str) -> bool:
+    def _trigger_upload_callbacks(self):
+        """Trigger all registered upload callbacks"""
+        for callback in self.on_upload_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                print(f"⚠️ Error in upload callback: {e}")
+    
+    def upload_file(self, file_path: str, auto_rebuild: bool = True) -> bool:
         """
         Upload a single file to the system.
         
         Args:
             file_path: Path to the file to upload
+            auto_rebuild: If True, triggers callbacks after upload
             
         Returns:
             True if successful, False otherwise
@@ -39,18 +53,23 @@ class UploadManager:
             # Copy file to upload directory
             shutil.copy2(file_path, destination)
             print(f"✅ Uploaded: {filename}")
+            
+            if auto_rebuild and self.on_upload_callbacks:
+                self._trigger_upload_callbacks()
+                
             return True
             
         except Exception as e:
             print(f"❌ Upload failed: {e}")
             return False
     
-    def upload_multiple_files(self, file_paths: List[str]) -> int:
+    def upload_multiple_files(self, file_paths: List[str], auto_rebuild: bool = True) -> int:
         """
         Upload multiple files at once.
         
         Args:
             file_paths: List of file paths to upload
+            auto_rebuild: If True, triggers callbacks after all files are uploaded
             
         Returns:
             Number of successfully uploaded files
@@ -60,8 +79,12 @@ class UploadManager:
         print(f"\n📤 Uploading {len(file_paths)} files...")
         
         for file_path in file_paths:
-            if self.upload_file(file_path):
+            if self.upload_file(file_path, auto_rebuild=False):  # Don't trigger for each file
                 success_count += 1
+        
+        # Only trigger callbacks once after all files are processed
+        if auto_rebuild and success_count > 0 and self.on_upload_callbacks:
+            self._trigger_upload_callbacks()
         
         print(f"\n✅ Successfully uploaded {success_count}/{len(file_paths)} files")
         return success_count
