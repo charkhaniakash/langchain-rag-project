@@ -37,7 +37,13 @@ langchain-rag-project/
 
 python3 -m venv venv
 
-source venv/bin/activate                                             
+source venv/bin/activate                       
+
+
+Run backend:
+
+python -m backend.main
+
 
 
 ### 1. Prerequisites
@@ -117,7 +123,7 @@ python orchestrator.py
 **Single File Mode:**
 ```bash
 # Process one audio file
-python voice_agent.py --input input.wav --output response.wav
+python voice_agent.py --input /Users/akash/Downloads/Weather.wav --output response.wav
 ```
 
 **Interactive Mode:**

@@ -1,37 +1,16 @@
 """
-Orchestrator Module
-===================
-
-This is the brain of the voice agent. It coordinates:
-1. LLM (Ollama) for understanding and generating responses
-2. RAG pipeline for knowledge retrieval
-3. MCP tools for actions (weather, Wikipedia, etc.)
-4. Conversation memory for context
-
-Flow:
-User Query → LLM analyzes intent → 
-    If knowledge needed → Call RAG
-    If action needed → Call MCP tools
-    → LLM generates final response
-
-The orchestrator uses a multi-step reasoning approach:
-1. Intent detection: What does the user want?
-2. Tool selection: Which tools/RAG are needed?
-3. Tool execution: Call the appropriate tools
-4. Response generation: Combine results into coherent answer
+Fixed Orchestrator with proper tool selection and execution
 """
 
 import re
-import ollama
+import os
 import json
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pathlib import Path
 import sys
-
-from torch import embedding
-
+from google import genai
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -41,174 +20,148 @@ from src.rag_chain import RAGChain
 from src.retriever_manager import RetrieverManager
 from src.vectorstore_manager import VectorStoreManager
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    """
-    Orchestrates the interaction between LLM, RAG, and MCP tools.
-    
-    This is the central coordinator that:
-    - Maintains conversation history
-    - Decides when to use RAG vs MCP tools
-    - Manages the flow of information
-    - Generates final responses
-    """
-    
     def __init__(
         self,
-        model_name: str = "mistral",
+        model_name: str = "gemini-2.5-flash",
         rag_chain=None,
         mcp_tools=None,
         max_history: int = 5
     ):
-        """
-        Initialize the orchestrator.
-        
-        Args:
-            model_name: Name of the Ollama model to use
-                       Popular options: "mistral", "llama2", "codellama"
-            rag_chain: Your existing RAG chain instance from rag_chain.py
-            mcp_tools: MCPTools instance for tool execution
-            max_history: Maximum conversation turns to remember (default: 5)
-        
-        The orchestrator needs:
-        1. An LLM (via Ollama) for reasoning
-        2. A RAG pipeline for knowledge retrieval
-        3. MCP tools for actions
-        """
         self.model_name = model_name
         self.rag_chain = rag_chain
         self.mcp_tools = mcp_tools
         self.max_history = max_history
-        
-        # Conversation memory: stores recent exchanges
-        # Each entry: {"role": "user" | "assistant", "content": "text"}
         self.conversation_history: List[Dict[str, str]] = []
         
         logger.info(f"Orchestrator initialized with model: {model_name}")
         
-        # Verify Ollama is available
-        try:
-            ollama.list()
-            logger.info("Ollama connection successful")
-        except Exception as e:
-            logger.error(f"Failed to connect to Ollama: {e}")
-            raise
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            logger.error("GOOGLE_API_KEY is not set")
+            raise RuntimeError("Missing GOOGLE_API_KEY")
+        self.gemini_client = genai.Client(api_key=api_key)
+        logger.info("Gemini client initialized")
     
+    def send_to_gemini(self, prompt: str) -> str:
+        try:
+            response = self.gemini_client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+            return getattr(response, "text", "") or ""
+        except Exception as e:
+            logger.error(f"Gemini error: {e}")
+            return "I'm sorry, I encountered an error processing your request."
+
+    def _compose_prompt(self, messages: List[Dict[str, str]]) -> str:
+        return "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in messages)
+
+    def _safe_json_loads(self, s: str) -> Optional[Dict[str, Any]]:
+        try:
+            cleaned = s.strip().replace("```json", "").replace("```", "")
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse tool parameters: {s}")
+            return None
+
     def add_to_history(self, role: str, content: str):
-        """
-        Add a message to conversation history.
-        
-        Args:
-            role: "user" or "assistant"
-            content: The message content
-        
-        Maintains a sliding window of recent conversations.
-        Old messages are removed when max_history is exceeded.
-        """
         self.conversation_history.append({
             "role": role,
             "content": content
         })
         
-        # Keep only recent history (sliding window)
-        if len(self.conversation_history) > self.max_history * 2:  # *2 for user+assistant pairs
+        if len(self.conversation_history) > self.max_history * 2:
             self.conversation_history = self.conversation_history[-self.max_history * 2:]
     
     def build_system_prompt(self) -> str:
-        """
-        Build the system prompt that guides the LLM's behavior.
-        
-        The system prompt:
-        1. Defines the LLM's role and capabilities
-        2. Explains available tools (RAG + MCP)
-        3. Provides instructions for tool usage
-        4. Sets the response format
-        
-        Returns:
-            Complete system prompt string
-        """
+        """Enhanced system prompt with better tool selection logic"""
         tools_description = ""
         if self.mcp_tools:
-            tools_description = "\n\nAvailable MCP Tools:\n"
+            tools_description = "\n\nAvailable External Tools:\n"
             for tool in self.mcp_tools.get_tool_definitions():
                 tools_description += f"- {tool['name']}: {tool['description']}\n"
         
-        system_prompt = f"""You are a helpful voice assistant with access to:
+        system_prompt = f"""You are a helpful AI assistant with TWO types of information sources:
 
-            1. KNOWLEDGE BASE (RAG): You can search a document knowledge base for information.
-            - Use this when the user asks about specific documents or stored information.
-            - When using RAG_SEARCH, preserve the user's original question as much as possible
-            - Format: [RAG_SEARCH: user's original question]
-            - Example: User asks "What was the narrator's fear?" → [RAG_SEARCH: What was the narrator's fear?]
+1. LOCAL KNOWLEDGE BASE (RAG): Contains uploaded documents about specific topics
+   - Use format: [RAG_SEARCH: user's exact question]
+   - Only use this when the question is about documents/content that was uploaded
+   - Examples: "What does my document say about...", "Explain the content in my PDF..."
 
-            2. MCP TOOLS: You have access to external tools:{tools_description}
-            - Use tools by specifying: [TOOL: tool_name] with parameters in JSON
-            - Example: [TOOL: get_weather] {{"location": "London"}}
+2. EXTERNAL TOOLS: For general world knowledge and real-time information{tools_description}
+   - Use format: [TOOL: tool_name] {{"param": "value"}}
+   - Use these for general knowledge questions NOT in your local documents
+   - Examples: 
+     * "Who is the founder of Jio" → [TOOL: search_wikipedia] {{"query": "Jio founder Mukesh Ambani"}}
+     * "What's the weather in London" → [TOOL: get_weather] {{"location": "London"}}
 
-            IMPORTANT INSTRUCTIONS:
-            - First, analyze what the user needs
-            - If you need information from the knowledge base, use [RAG_SEARCH: original user question]
-            - DO NOT rephrase or shorten the user's question when using RAG_SEARCH
-            - If you need to perform an action (weather, Wikipedia), use [TOOL: tool_name]
-            - You can use multiple tools in one response if needed
-            - Always provide a complete, conversational response to the user
-            - Be concise but informative
+DECISION MAKING:
+Step 1: Analyze the question
+  - Is it about uploaded documents/PDFs? → Use RAG_SEARCH
+  - Is it general knowledge or real-time info? → Use appropriate TOOL
+  - Is it a simple greeting? → Answer directly
 
-            Response Format:
-            1. Think about what's needed (internally)
-            2. If needed, request tools: [RAG_SEARCH: ...] or [TOOL: ...]
-            3. Provide your final answer in natural language
+Step 2: Execute tools if needed
+  - You can use MULTIPLE tools in one response
+  - Be specific with tool parameters
 
-            Current date: {datetime.now().strftime('%Y-%m-%d')}
-            """
+Step 3: Provide natural response
+  - Synthesize information from tools
+  - Be conversational and helpful
+
+IMPORTANT RULES:
+- ALWAYS use tools for questions you cannot answer from general knowledge
+- For people, companies, places → use search_wikipedia
+- For weather → use get_weather  
+- For document content → use RAG_SEARCH
+- Answer greetings directly without tools
+
+Current date: {datetime.now().strftime('%Y-%m-%d')}"""
+        
         return system_prompt
     
     def parse_tool_requests(self, llm_response: str) -> Dict[str, Any]:
-        """
-        Parse the LLM's response to detect tool requests.
-        
-        Looks for patterns:
-        - [RAG_SEARCH: query text] → Search knowledge base
-        - [TOOL: tool_name] {"param": "value"} → Execute MCP tool
-        
-        Args:
-            llm_response: Raw response from the LLM
-        
-        Returns:
-            Dictionary containing:
-            - rag_queries: List of RAG search queries
-            - tool_calls: List of MCP tool calls
-            - clean_response: LLM response with tool markers removed
-        """
+        """Enhanced parsing with better pattern matching"""
         rag_queries = []
         tool_calls = []
         
+        logger.info(f"Parsing LLM response: {llm_response}")
+        
         # Pattern for RAG search: [RAG_SEARCH: query]
         rag_pattern = r'\[RAG_SEARCH:\s*([^\]]+)\]'
-        rag_matches = re.findall(rag_pattern, llm_response)
+        rag_matches = re.findall(rag_pattern, llm_response, re.IGNORECASE)
+        logger.info(f"Raggggg: {rag_matches}")
         rag_queries.extend([q.strip() for q in rag_matches])
+        logger.info(f"Found RAG queries: {rag_queries}")
         
         # Pattern for MCP tool: [TOOL: tool_name] {parameters}
-        tool_pattern = r'\[TOOL:\s*(\w+)\]\s*(\{[^}]+\})'
-        tool_matches = re.findall(tool_pattern, llm_response)
+        # More flexible pattern to handle variations
+        tool_pattern = re.compile(
+            r'\[TOOL:\s*(\w+)\]\s*(\{[^}]*\})', 
+            re.IGNORECASE | re.DOTALL
+        )
+        tool_matches = tool_pattern.findall(llm_response)
+        logger.info(f"Found tool matches: {tool_matches}")
         
         for tool_name, params_str in tool_matches:
-            try:
-                params = json.loads(params_str)
+            params = self._safe_json_loads(params_str)
+            if params is not None:
                 tool_calls.append({
                     "name": tool_name,
                     "parameters": params
                 })
-            except json.JSONDecodeError:
+                logger.info(f"Added tool call: {tool_name} with params: {params}")
+            else:
                 logger.warning(f"Failed to parse tool parameters: {params_str}")
         
         # Remove tool markers from response
-        clean_response = re.sub(rag_pattern, '', llm_response)
-        clean_response = re.sub(tool_pattern, '', clean_response)
+        clean_response = re.sub(rag_pattern, '', llm_response, flags=re.IGNORECASE)
+        clean_response = tool_pattern.sub('', clean_response)
         clean_response = clean_response.strip()
         
         return {
@@ -218,17 +171,6 @@ class Orchestrator:
         }
     
     def execute_rag_search(self, query: str) -> str:
-        """
-        Execute a RAG search using your existing pipeline.
-        
-        Args:
-            query: Search query for the knowledge base
-        
-        Returns:
-            Retrieved information as a string
-        
-        This integrates with your existing rag_chain.py
-        """
         if not self.rag_chain:
             logger.warning("RAG chain not available")
             return "Knowledge base is not available."
@@ -236,47 +178,48 @@ class Orchestrator:
         try:
             logger.info(f"Executing RAG search: {query}")
             
-            # Call your existing RAG chain
-            # Adjust this based on your actual rag_chain.py interface
-            # Common patterns:
-            # result = self.rag_chain.run(query)
-            # result = self.rag_chain.invoke({"query": query})
-            # result = self.rag_chain(query)
+            # Try different RAG chain methods
+            result = None
             
-            # result = self.rag_chain.invoke(query)
-
-            result = self.rag_chain.query(query)
+            # Method 1: Try .query() method
+            if hasattr(self.rag_chain, 'query'):
+                result = self.rag_chain.query(query)
+            # Method 2: Try .invoke() method (LangChain style)
+            elif hasattr(self.rag_chain, 'invoke'):
+                result = self.rag_chain.invoke({"question": query})
+            # Method 3: Try calling directly
+            elif callable(self.rag_chain):
+                result = self.rag_chain(query)
+            else:
+                logger.error("RAG chain has no recognizable query method")
+                return "Knowledge base method not found."
             
-            # Extract the relevant information
-            # Adjust based on your RAG chain's return format
+            logger.info(f"RAG result type: {type(result)}")
+            logger.info(f"RAG result: {result}")
+            
+            # Parse different result formats
             if isinstance(result, dict):
-                return result.get("answer", str(result))
+                # Try common dictionary keys
+                answer = (result.get("answer") or 
+                         result.get("result") or 
+                         result.get("output") or
+                         result.get("response"))
+                if answer:
+                    return str(answer)
+                else:
+                    logger.warning(f"Unknown dict format: {result.keys()}")
+                    return str(result)
+            elif isinstance(result, str):
+                return result
             else:
                 return str(result)
                 
         except Exception as e:
-            logger.error(f"RAG search failed: {e}")
+            logger.error(f"RAG search failed: {e}", exc_info=True)
             return f"Error searching knowledge base: {str(e)}"
     
     def process_query(self, user_query: str) -> str:
-        """
-        Main orchestration method: processes a user query end-to-end.
-        
-        Steps:
-        1. Add query to conversation history
-        2. Send to LLM for initial analysis
-        3. Parse response for tool requests
-        4. Execute requested tools (RAG/MCP)
-        5. Send results back to LLM
-        6. Generate final response
-        7. Add to history and return
-        
-        Args:
-            user_query: The user's input text
-        
-        Returns:
-            Final response text to be converted to speech
-        """
+        """Main orchestration with enhanced logging"""
         logger.info(f"Processing query: {user_query}")
         
         # Add user query to history
@@ -292,14 +235,10 @@ class Orchestrator:
         
         # Step 1: Get initial LLM response
         try:
-            logger.info("Sending query to LLM...")
-            llm_response = ollama.chat(
-                model=self.model_name,
-                messages=messages
-            )
-            
-            initial_response = llm_response['message']['content']
-            logger.info(f"LLM initial response: {initial_response[:200]}...")
+            logger.info("Sending query to Gemini...")
+            prompt = self._compose_prompt(messages)
+            initial_response = self.send_to_gemini(prompt)
+            logger.info(f"LLM initial response: {initial_response}")
             
         except Exception as e:
             logger.error(f"LLM error: {e}")
@@ -307,6 +246,7 @@ class Orchestrator:
         
         # Step 2: Parse for tool requests
         parsed = self.parse_tool_requests(initial_response)
+        logger.info(f"Parsed result - RAG queries: {parsed['rag_queries']}, Tool calls: {parsed['tool_calls']}")
         
         # Step 3: Execute tools if requested
         tool_results = []
@@ -314,71 +254,68 @@ class Orchestrator:
         # Execute RAG searches
         for rag_query in parsed["rag_queries"]:
             logger.info(f"Executing RAG search: {rag_query}")
-            # rag_result = self.execute_rag_search(rag_query)
-            rag_result = self.execute_rag_search(user_query)
+            rag_result = self.execute_rag_search(rag_query)
             tool_results.append(f"Knowledge Base Result for '{rag_query}':\n{rag_result}")
         
         # Execute MCP tools
         for tool_call in parsed["tool_calls"]:
-            logger.info(f"Executing MCP tool: {tool_call['name']}")
-            tool_result = self.mcp_tools.execute_tool(
-                tool_call['name'],
-                tool_call['parameters']
-            )
-            formatted_result = self.mcp_tools.format_tool_result(tool_result)
-            tool_results.append(f"Tool Result ({tool_call['name']}):\n{formatted_result}")
+            logger.info(f"Executing MCP tool: {tool_call['name']} with params: {tool_call['parameters']}")
+            try:
+                tool_result = self.mcp_tools.execute_tool(
+                    tool_call['name'],
+                    tool_call['parameters']
+                )
+                formatted_result = self.mcp_tools.format_tool_result(tool_result)
+                tool_results.append(f"Tool Result ({tool_call['name']}):\n{formatted_result}")
+                logger.info(f"Tool result: {formatted_result[:200]}...")
+            except Exception as e:
+                logger.error(f"Tool execution error: {e}")
+                tool_results.append(f"Error executing {tool_call['name']}: {str(e)}")
         
-        # Step 4: If tools were used, send results back to LLM for final response
+        # Step 4: Generate final response
         if tool_results:
-            logger.info("Tools executed, generating final response...")
+            logger.info(f"Tools executed ({len(tool_results)} results), generating final response...")
             
-            # Add tool results to context
             tools_context = "\n\n".join(tool_results)
             
             final_messages = messages + [
                 {"role": "assistant", "content": initial_response},
                 {
                     "role": "user",
-                    "content": f"Here are the results from the tools you requested:\n\n{tools_context}\n\nPlease provide a complete, conversational response to the user based on this information."
+                    "content": f"Here are the results from the tools:\n\n{tools_context}\n\nProvide a clear, conversational answer based on this information."
                 }
             ]
             
             try:
-                final_llm_response = ollama.chat(
-                    model=self.model_name,
-                    messages=final_messages
-                )
-                
-                final_response = final_llm_response['message']['content']
+                final_prompt = self._compose_prompt(final_messages)
+                final_response = self.send_to_gemini(final_prompt)
+                logger.info(f"Final response: {final_response[:200]}...")
                 
             except Exception as e:
                 logger.error(f"Final LLM response error: {e}")
-                final_response = parsed["clean_response"] or "I found some information but had trouble forming a response."
+                final_response = tools_context  # Fallback to raw tool results
         else:
             # No tools needed, use the initial response
+            logger.info("No tools requested, using initial response")
             final_response = parsed["clean_response"] or initial_response
         
         # Add assistant response to history
         self.add_to_history("assistant", final_response)
         
-        logger.info(f"Final response generated: {final_response[:200]}...")
         return final_response
     
     def reset_conversation(self):
-        """Clear conversation history. Useful for starting a new conversation."""
         self.conversation_history = []
         logger.info("Conversation history reset")
 
 
-# Example usage
+# Test script
 if __name__ == "__main__":
     from mcp_tools import MCPTools
     
     # Initialize components
     mcp_tools = MCPTools()
     
-    # rag_chain = load_rag_chain()
-
     llm = LLMManager().get_llm()
     embeddings = EmbeddingsManager().get_embeddings()
     vectorstore = VectorStoreManager(embeddings).get_vectorstore()
@@ -386,18 +323,18 @@ if __name__ == "__main__":
     retriever = retriever_manager.create_retriever(search_type="similarity")
     rag_chain = RAGChain(llm=llm, retriever=retriever).create_chain()
     
-    # Initialize orchestrator (without RAG for this example)
+    # Initialize orchestrator
     orchestrator = Orchestrator(
-        model_name="mistral",
-        rag_chain=rag_chain,  # Replace with your actual RAG chain
+        model_name="gemini-2.5-flash",
+        rag_chain=rag_chain,
         mcp_tools=mcp_tools
     )
     
     # Test queries
     test_queries = [
-        "Custom Model Fine-tuning / Instruction Tuning"
-        # "Tell me about artificial intelligence from Wikipedia",
-        # "What's the weather in London and tell me about the city from Wikipedia"
+        "Who is the founder of Jio?",  # Should use Wikipedia tool
+        "What's the weather in Mumbai?",  # Should use weather tool
+        "Custom Model Fine-tuning"  # Should use RAG if in documents
     ]
     
     for query in test_queries:

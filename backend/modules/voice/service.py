@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class VoiceService:
     def __init__(self):
-        self.voice_agent = VoiceAgent()
+        self.voice_agent = VoiceAgent(tts_rate=180)
         self.temp_dir = Path("temp_audio")
         self.temp_dir.mkdir(exist_ok=True)
 

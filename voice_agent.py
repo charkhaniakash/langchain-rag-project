@@ -78,7 +78,7 @@ class VoiceAgent:
     
     def __init__(
         self,
-        model_name: str = "mistral",
+        model_name: str = "gemini-2.5-flash",
         whisper_model: str = "base",
         tts_rate: int = 150,
         rag_chain=None
@@ -182,6 +182,9 @@ class VoiceAgent:
                 logger.error("TTS failed")
                 return {"error": "Speech generation failed"}
             logger.info(f"Response audio saved: {output_file}")
+            # ADD THIS: Convert to browser-compatible format
+            converted_file = self.convert_audio_to_browser_format(output_file)
+            logger.info(f"Audio converted for browser: {converted_file}")
         except Exception as e:
             logger.error(f"TTS failed: {e}")
             return {"error": f"Speech generation failed: {str(e)}"}
@@ -191,8 +194,47 @@ class VoiceAgent:
             "success": True,
             "transcribed_text": user_text,
             "response_text": response_text,
-            "audio_file": output_file
+            "audio_file": converted_file  # CHANGE THIS from output_file to converted_file
         }
+    
+    def convert_audio_to_browser_format(self, input_file: str) -> str:
+        """
+        Convert audio file to browser-compatible format.
+        If already MP3 (from gTTS), no conversion needed.
+        
+        Args:
+            input_file: Path to input audio file
+            
+        Returns:
+            Path to browser-compatible audio file
+        """
+        # If it's already MP3, just return it
+        if input_file.endswith('.mp3'):
+            logger.info(f"Audio already in MP3 format: {input_file}")
+            return input_file
+        
+        # Otherwise convert to MP3 using pydub
+        from pydub import AudioSegment
+        
+        try:
+            # Detect format from extension or content
+            if input_file.endswith('.aiff') or input_file.endswith('.aif'):
+                audio = AudioSegment.from_file(input_file, format="aiff")
+            else:
+                audio = AudioSegment.from_file(input_file)
+            
+            converted_file = input_file.replace('.wav', '.mp3').replace('.aiff', '.mp3')
+            print("converted_file>>>>" , converted_file)
+            
+            # Export as MP3
+            audio.export(converted_file, format="mp3", bitrate="128k")
+            
+            logger.info(f"Audio converted to MP3: {converted_file}")
+            return converted_file
+            
+        except Exception as e:
+            logger.error(f"Audio conversion failed: {e}")
+            return input_file  # Return original if conversion fails
     def interactive_mode(self, realtime: bool = True):
         """
         Run in interactive mode: continuous conversation.
@@ -419,8 +461,8 @@ Examples:
     parser.add_argument(
         '--model',
         type=str,
-        default='mistral',
-        help='Ollama model name (default: mistral)'
+        default='gemini-2.5-flash',
+        help='Ollama model name (default: gemini-2.5-flash)'
     )
     
     parser.add_argument(
