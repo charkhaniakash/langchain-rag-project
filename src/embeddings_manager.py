@@ -27,7 +27,7 @@ class EmbeddingsManager:
         # HuggingFaceEmbeddings wraps sentence-transformers models
         # The model is downloaded on first use and cached locally
         self.embeddings = HuggingFaceEmbeddings(
-            model_name=Config.EMBEDDING_MODEL,
+            model_name="invalid-model-name",
             
             # Run on CPU (set to "cuda" if you have GPU)
             model_kwargs={'device': 'cpu'},
