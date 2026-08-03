@@ -6,6 +6,8 @@ Uses sentence-transformers (free, local, no API required).
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from src.config import Config
 
+import logging
+
 class EmbeddingsManager:
     """
     Manages the creation of text embeddings using HuggingFace models.
@@ -22,21 +24,23 @@ class EmbeddingsManager:
         - Good quality embeddings
         - No rate limits
         """
-        print(f"🔤 Initializing embeddings model: {Config.EMBEDDING_MODEL}")
-        
-        # HuggingFaceEmbeddings wraps sentence-transformers models
-        # The model is downloaded on first use and cached locally
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=Config.EMBEDDING_MODEL,
-            
-            # Run on CPU (set to "cuda" if you have GPU)
-            model_kwargs={'device': 'cpu'},
-            
-            # Normalize embeddings to unit length for cosine similarity
-            encode_kwargs={'normalize_embeddings': True}
-        )
-        
-        print("✅ Embeddings model loaded")
+        print(f"\ud83d\udd24 Initializing embeddings model: {Config.EMBEDDING_MODEL}")
+        try:
+            # HuggingFaceEmbeddings wraps sentence-transformers models
+            # The model is downloaded on first use and cached locally
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=Config.EMBEDDING_MODEL,
+                
+                # Run on CPU (set to \"cuda\" if you have GPU)
+                model_kwargs={'device': 'cpu'},
+                
+                # Normalize embeddings to unit length for cosine similarity
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            print("\u2705 Embeddings model loaded")
+        except Exception as e:
+            logging.error(f'Failed to initialize embeddings model: {e}')
+            raise
     
     def get_embeddings(self):
         """
@@ -58,20 +62,11 @@ class EmbeddingsManager:
         Args:
             text: Sample text to embed
         """
-        print(f"\n🧪 Testing embeddings with: '{text}'")
+        print(f"\n\ud83e\uddea Testing embeddings with: '{text}'")
         
         # embed_query() returns a list of floats (the embedding vector)
         embedding = self.embeddings.embed_query(text)
         
-        print(f"✅ Embedding dimension: {len(embedding)}")
-        print(f"📊 First 5 values: {embedding[:5]}")
-        print(f"📊 Embedding norm (should be ~1.0): {sum(x**2 for x in embedding)**0.5:.4f}")
-
-
-
-# What makes embeddings work:
-
-# Converts text → high-dimensional vectors (here: 384 dimensions)
-# Similar texts get similar vectors (measured by cosine similarity)
-# "cat" and "kitten" have vectors closer than "cat" and "airplane"
-# This enables semantic search: find meaning, not just keywords
+        print(f"\u2705 Embedding dimension: {len(embedding)}")
+        print(f"\ud83d\udcca First 5 values: {embedding[:5]}")
+        print(f"\ud83d\udcca Embedding norm (should be ~1.0): {sum(x**2 for x in embedding)**0.5:.4f}")
